@@ -1,0 +1,41 @@
+---
+config:
+  theme: dark
+  look: classic
+---
+graph TB
+    subgraph "Data Collection"
+        A[Web Scraping] --> B[Raw Data<br/>HTML/JSON]
+        B --> C[LLM Extraction<br/>GPT/Gemini]
+        C --> D[Structured Dataset]
+    end
+    subgraph "Data Enrichment"
+        D --> E[Geolocation APIs<br/>Maps, OSM]
+        E --> F[Feature Engineering<br/>Walk Score, POI Distance]
+        F --> G[Clean Dataset<br/>PostgreSQL]
+    end
+    subgraph "ML Pipeline"
+        G --> H[Exploratory Analysis<br/>EDA]
+        H --> I[Model Training<br/>XGBoost, Neural Networks]
+        I --> J[Model Evaluation]
+        J --> K[Best Model Selection]
+    end
+    subgraph "Deployment"
+        K --> L[FastAPI Backend]
+        L --> M[Web Interface<br/>React/Next.js]
+    end
+    subgraph "Continuous Improvement"
+        M --> O[User Feedback]
+        O --> P[Model Retraining]
+        P --> K
+    end
+    subgraph "Advanced Features"
+        Q[Economic Data<br/>Interest Rates, Trends] --> L
+        R[Timing Advisor] --> M
+        S[ROI Calculator] --> M
+    end
+    style A fill:#e1f5ff
+    style D fill:#fff4e1
+    style G fill:#e8f5e9
+    style K fill:#f3e5f5
+    style M fill:#fce4ec
