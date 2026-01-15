@@ -19,19 +19,14 @@ Na hrvatskom tržištu ne postoji javno dostupan alat koji omogućava brzu i pou
 - Ekstrakcija strukturiranih podataka (površina, broj soba, lokacija, cijena...)
 - **LLM-powered analiza**: Korištenje velikih jezičnih modela za ekstrakciju dodatnih značajki iz tekstualnih opisa oglasa
 
-### 2. Geolokacijske značajke
-- Izračun blizine ključnih sadržaja (škole, trgovine, javni prijevoz)
-- Walk Score i druge metrike dostupnosti
-- Rješavanje problema neprecizne lokacije kroz analizu patterna u oglasima
-
-### 3. Machine Learning model
+### 2. Machine Learning model
 - Predviđanje cijene na osnovu:
   - Osnovnih karakteristika nekretnine
   - Lokacijskih faktora
   - Dodatnih ekstrahiranih značajki iz opisa
   - Tržišnih trendova
 
-### 4. Napredne funkcionalnosti (Budućnost)
+### 3. Napredne funkcionalnosti (Budućnost)
 - Ekonomski pokazatelji: kamatne stope, tržišni trendovi
 - Savjeti o optimalnom timingu kupnje/prodaje
 - Analiza isplativosti investicije
@@ -41,8 +36,7 @@ Na hrvatskom tržištu ne postoji javno dostupan alat koji omogućava brzu i pou
 ### Faza 1: Prikupljanje i priprema podataka
 1. Web scraping oglasa s multiple platformi
 2. LLM-based ekstrakcija kategorija iz nestrukturiranih opisa
-3. Geolokacijska obogaćivanje podataka
-4. Čišćenje i validacija dataseta
+3. Čišćenje i validacija dataseta
 
 ### Faza 2: Razvoj modela
 1. Eksplorativna analiza podataka (EDA)
@@ -59,17 +53,6 @@ Na hrvatskom tržištu ne postoji javno dostupan alat koji omogućava brzu i pou
 
 TBD
 
-## Izazovi i rješenja
-
-### Problem: Neprecizna lokacija
-- **Izazov**: Oglasi prikazuju krug unutar kojeg se nalazi nekretnina, ne točnu adresu
-- **Pristup**: Analiza konzistentnosti pozicija u krugovima, korištenje centroida kao aproksimacije
-- **Alternativa**: Dodavanje "uncertainty radius" kao dodatne značajke
-
-### Problem: Nedostatak javne baze prodaja
-- **Izazov**: Ne postoji javna evidencija stvarnih prodajnih cijena
-- **Pristup**: Korištenje oglašenih cijena kao proxy, filtriranje outliera i nerealno postavljenih oglasa
-
 ## Roadmap
 
 ### Faza 1: MVP ✨
@@ -80,10 +63,9 @@ TBD
 - [ ] Osnovni web interface
 
 ### Faza 2: Poboljšanja 🚀
-- [ ] Geolokacijske značajke i external API integracije
+- [ ] External API integracije
 - [ ] Model refinement i ensemble pristup
 - [ ] Vizualizacija tržišnih trendova
-- [ ] Dodavanje novih izvora podataka
 
 ### Faza 3: Advanced Features 💡
 - [ ] Ekonomski indikatori i timing savjeti
