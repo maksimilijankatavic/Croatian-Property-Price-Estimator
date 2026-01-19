@@ -1,1 +1,4 @@
 .env
+scraper/images
+scraper/properties_raw.parquet
+scraper/properties.json
