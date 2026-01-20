@@ -1,4 +1,6 @@
 .env
 scraper/images
+scraper/apartments.parquet
+scraper/houses.parquet
 scraper/properties_raw.parquet
 scraper/properties.json
