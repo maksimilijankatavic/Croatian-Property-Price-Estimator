@@ -24,8 +24,13 @@ load_dotenv()
 
 # Konfiguracija
 SCRIPT_DIR = Path(__file__).parent
-IMAGES_DIR = SCRIPT_DIR / "images"
+PROJECT_ROOT = SCRIPT_DIR.parent.parent  # src/scraping -> src -> project root
+DATA_DIR = PROJECT_ROOT / "data"
+IMAGES_DIR = DATA_DIR / "images"
+RAW_DATA_DIR = DATA_DIR / "raw"
+
 IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 IMAGE_SIZE = (512, 512)
 IMAGE_QUALITY = 85
@@ -358,7 +363,7 @@ def main():
     args = parser.parse_args()
 
     json_path = SCRIPT_DIR / 'properties.json'
-    output_file = SCRIPT_DIR / 'properties_raw.parquet'
+    output_file = RAW_DATA_DIR / 'properties_raw.parquet'
 
     if not json_path.exists():
         print(f"Greska: Datoteka '{json_path}' ne postoji.")
