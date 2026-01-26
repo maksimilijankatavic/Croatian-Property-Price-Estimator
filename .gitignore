@@ -15,6 +15,12 @@ __pycache__/
 .venv/
 venv/
 
+# Marimo cache
+__marimo__/
+
+# CatBoost cache
+catboost_info/
+
 # IDE
 .vscode/
 .idea/
