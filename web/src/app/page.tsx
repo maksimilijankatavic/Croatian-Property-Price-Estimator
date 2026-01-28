@@ -28,8 +28,9 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
-import type { EDAData, FormData, CityData } from '@/lib/types';
+import type { EDAData, FormData, CityData, PredictionInput, PredictionResult } from '@/lib/types';
 import { formatPrice, formatNumber } from '@/lib/utils';
+import { predictPrice, checkHealth } from '@/lib/api';
 
 // Dynamic import for map (no SSR)
 const MapComponent = dynamic(() => import('@/components/Map'), {
@@ -76,18 +77,65 @@ export default function HomePage() {
   const [propertyType, setPropertyType] = useState<'apartments' | 'houses'>('apartments');
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [formValues, setFormValues] = useState({
+    // Location
     zupanija: '',
     grad_opcina: '',
     naselje: '',
+    // Core
     stambena_povrsina: '',
     broj_soba: '',
     godina_izgradnje: '',
+    godina_renovacije: '',
+    energetski_razred: '',
+    wc_broj: '',
+    kupaonica_s_wc_broj: '',
+    broj_etaza: '',
+    broj_parkirnih_mjesta: '',
+    // Apartments specific
     kat: '',
-    ima_lift: false,
-    ima_balkon: false,
-    ima_parking: false,
+    ukupni_broj_katova: '',
+    tip_stana: '',
+    orijentacija_istok: false,
+    orijentacija_jug: false,
+    orijentacija_sjever: false,
+    orijentacija_zapad: false,
+    // Houses specific
+    povrsina_okucnice: '',
+    pogled_more: false,
+    tip_kuce: '',
+    vrsta_gradnje: '',
+    // Binary flags
     novogradnja: false,
+    ima_lift: false,
+    balkon_balkon: false,
+    balkon_terasa: false,
+    balkon_lodja: false,
+    grijanje_klima: false,
+    objekt_bazen: false,
+    objekt_dvoriste: false,
+    objekt_podrum: false,
+    objekt_rostilj: false,
+    objekt_spremiste: false,
+    objekt_vrtna_kucica: false,
+    objekt_zimski_vrt: false,
+    dozvola_vlasnicki_list: false,
+    dozvola_gradevinska: false,
+    dozvola_uporabna: false,
+    // Funk features
+    funk_kamin: false,
+    funk_podno_grijanje: false,
+    funk_alarm: false,
+    funk_sauna: false,
+    // Alt energija
+    alt_solarni_paneli: false,
+    alt_toplinske_pumpe: false,
+    // Select fields
+    parking_type: '',
+    grijanje_sustav: '',
   });
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [predictionError, setPredictionError] = useState<string | null>(null);
+  const [backendReady, setBackendReady] = useState<boolean | null>(null);
 
   // Prediction state
   const [prediction, setPrediction] = useState<{
@@ -95,8 +143,15 @@ export default function HomePage() {
     pricePerM2: number;
     range: { low: number; high: number };
     comparisons: { city: string; price: number }[];
+    modelVersion?: string;
+    featuresUsed?: number;
   } | null>(null);
   const [predicting, setPredicting] = useState(false);
+
+  // Check backend health on mount
+  useEffect(() => {
+    checkHealth().then(result => setBackendReady(result.ready));
+  }, []);
 
   // Load data
   useEffect(() => {
@@ -157,48 +212,103 @@ export default function HomePage() {
     });
   };
 
-  // Handle prediction
+  // Handle prediction via HF Spaces API
   const handlePredict = async () => {
-    if (!formData || !formValues.stambena_povrsina) return;
+    if (!formData || !formValues.stambena_povrsina || !formValues.zupanija) return;
 
     setPredicting(true);
+    setPredictionError(null);
 
-    const encodings = formData[propertyType].encodings;
     const area = parseFloat(formValues.stambena_povrsina);
 
-    const zupanijaEnc = encodings?.zupanija?.mapping?.[formValues.zupanija] || encodings?.zupanija?.global_mean || 12.5;
-    const gradEnc = encodings?.grad_opcina?.mapping?.[formValues.grad_opcina] || encodings?.grad_opcina?.global_mean || 12.5;
-    const naseljeEnc = encodings?.naselje?.mapping?.[formValues.naselje] || encodings?.naselje?.global_mean || 12.5;
+    try {
+      // Build prediction input
+      const input: PredictionInput = {
+        property_type: propertyType,
+        zupanija: formValues.zupanija,
+        grad_opcina: formValues.grad_opcina,
+        naselje: formValues.naselje || undefined,
+        stambena_povrsina: area,
+        broj_soba: formValues.broj_soba ? parseFloat(formValues.broj_soba) : undefined,
+        godina_izgradnje: formValues.godina_izgradnje ? parseInt(formValues.godina_izgradnje) : undefined,
+        godina_renovacije: formValues.godina_renovacije ? parseInt(formValues.godina_renovacije) : undefined,
+        energetski_razred: formValues.energetski_razred ? parseInt(formValues.energetski_razred) : undefined,
+        wc_broj: formValues.wc_broj ? parseInt(formValues.wc_broj) : undefined,
+        kupaonica_s_wc_broj: formValues.kupaonica_s_wc_broj ? parseInt(formValues.kupaonica_s_wc_broj) : undefined,
+        broj_etaza: formValues.broj_etaza ? parseFloat(formValues.broj_etaza) : undefined,
+        broj_parkirnih_mjesta: formValues.broj_parkirnih_mjesta ? parseInt(formValues.broj_parkirnih_mjesta) : undefined,
+        // Apartments specific
+        kat: formValues.kat ? parseFloat(formValues.kat) : undefined,
+        ukupni_broj_katova: formValues.ukupni_broj_katova ? parseFloat(formValues.ukupni_broj_katova) : undefined,
+        tip_stana: formValues.tip_stana || undefined,
+        // Orientation (apartments)
+        orijentacija_istok: formValues.orijentacija_istok ? 1 : undefined,
+        orijentacija_jug: formValues.orijentacija_jug ? 1 : undefined,
+        orijentacija_sjever: formValues.orijentacija_sjever ? 1 : undefined,
+        orijentacija_zapad: formValues.orijentacija_zapad ? 1 : undefined,
+        // Houses specific
+        povrsina_okucnice: formValues.povrsina_okucnice ? parseFloat(formValues.povrsina_okucnice) : undefined,
+        pogled_more: formValues.pogled_more ? 1 : undefined,
+        tip_kuce: formValues.tip_kuce || undefined,
+        vrsta_gradnje: formValues.vrsta_gradnje || undefined,
+        // Binary flags
+        podatak_novogradnja: formValues.novogradnja ? 1 : undefined,
+        podatak_lift: formValues.ima_lift ? 1 : undefined,
+        balkon_balkon: formValues.balkon_balkon ? 1 : undefined,
+        balkon_terasa: formValues.balkon_terasa ? 1 : undefined,
+        balkon_lodja_loggia: formValues.balkon_lodja ? 1 : undefined,
+        grijanje_klima: formValues.grijanje_klima ? 1 : undefined,
+        objekt_bazen: formValues.objekt_bazen ? 1 : undefined,
+        objekt_dvoriste_vrt: formValues.objekt_dvoriste ? 1 : undefined,
+        objekt_podrum: formValues.objekt_podrum ? 1 : undefined,
+        objekt_rostilj: formValues.objekt_rostilj ? 1 : undefined,
+        objekt_spremiste: formValues.objekt_spremiste ? 1 : undefined,
+        objekt_vrtna_kucica: formValues.objekt_vrtna_kucica ? 1 : undefined,
+        objekt_zimski_vrt: formValues.objekt_zimski_vrt ? 1 : undefined,
+        // Permits
+        dozvola_vlasnicki_list: formValues.dozvola_vlasnicki_list ? 1 : undefined,
+        dozvola_gradevinska_dozvola: formValues.dozvola_gradevinska ? 1 : undefined,
+        dozvola_uporabna_dozvola: formValues.dozvola_uporabna ? 1 : undefined,
+        // Funk features
+        funk_kamin: formValues.funk_kamin ? 1 : undefined,
+        funk_podno_grijanje: formValues.funk_podno_grijanje ? 1 : undefined,
+        funk_alarm: formValues.funk_alarm ? 1 : undefined,
+        funk_sauna: formValues.funk_sauna ? 1 : undefined,
+        // Alt energija
+        alt_solarni_paneli: formValues.alt_solarni_paneli ? 1 : undefined,
+        alt_toplinske_pumpe: formValues.alt_toplinske_pumpe ? 1 : undefined,
+        // Select fields
+        parking_type: formValues.parking_type || undefined,
+        grijanje_sustav: formValues.grijanje_sustav || undefined,
+      };
 
-    const avgEnc = (zupanijaEnc + gradEnc + naseljeEnc) / 3;
-    const basePrice = Math.exp(avgEnc);
-    const areaFactor = area / 80;
-    const predictedPrice = basePrice * areaFactor;
+      const result = await predictPrice(input);
 
-    const range = {
-      low: Math.round(predictedPrice * 0.85),
-      high: Math.round(predictedPrice * 1.15),
-    };
+      // Generate city comparisons using encodings (client-side for UX)
+      const encodings = formData[propertyType].encodings;
+      const areaFactor = area / 80;
+      const comparisons = Object.entries(encodings?.grad_opcina?.mapping || {})
+        .filter(([city]) => city !== formValues.grad_opcina && MAIN_CITIES.includes(city))
+        .map(([city, enc]) => ({
+          city,
+          price: Math.round(Math.exp(enc as number) * areaFactor),
+        }))
+        .sort((a, b) => b.price - a.price)
+        .slice(0, 5);
 
-    // Compare only with main cities
-    const comparisons = Object.entries(encodings?.grad_opcina?.mapping || {})
-      .filter(([city]) => city !== formValues.grad_opcina && MAIN_CITIES.includes(city))
-      .map(([city, enc]) => ({
-        city,
-        price: Math.round(Math.exp(enc as number) * areaFactor),
-      }))
-      .sort((a, b) => b.price - a.price)
-      .slice(0, 5);
-
-    setTimeout(() => {
       setPrediction({
-        price: Math.round(predictedPrice),
-        pricePerM2: Math.round(predictedPrice / area),
-        range,
+        price: result.predicted_price,
+        pricePerM2: result.price_per_m2,
+        range: result.price_range,
         comparisons,
+        modelVersion: result.model_version,
+        featuresUsed: result.features_used,
       });
+    } catch (error) {
+      setPredictionError(error instanceof Error ? error.message : 'Greška pri procjeni cijene. Pokušajte ponovno.');
+    } finally {
       setPredicting(false);
-    }, 500);
+    }
   };
 
   // Filter cities (exclude Solin)
@@ -224,6 +334,17 @@ export default function HomePage() {
 
       return {
         ...data,
+        // Override top-level stats with city-specific data
+        total_count: cityGrad?.count ?? data.total_count,
+        avg_price: cityGrad?.price_mean ?? data.avg_price,
+        median_price: cityGrad?.price_median ?? data.median_price,
+        min_price: cityGrad?.price_min ?? data.min_price,
+        max_price: cityGrad?.price_max ?? data.max_price,
+        std_price: cityGrad?.price_std ?? data.std_price,
+        avg_area: cityGrad?.area_mean ?? data.avg_area,
+        median_area: cityGrad?.area_median ?? data.median_area,
+        avg_price_per_m2: cityGrad?.price_per_m2 ?? data.avg_price_per_m2,
+        median_price_per_m2: cityGrad?.price_per_m2 ?? data.median_price_per_m2,
         scatter: filteredScatter,
         selectedCityData: cityGrad,
       };
@@ -465,10 +586,214 @@ export default function HomePage() {
                     </select>
                   </div>
                 )}
+
+                {/* Energetski razred */}
+                <div>
+                  <label className="label">Energetski razred</label>
+                  <select
+                    className="select"
+                    value={formValues.energetski_razred}
+                    onChange={(e) => setFormValues({...formValues, energetski_razred: e.target.value})}
+                  >
+                    <option value="">Odaberite</option>
+                    <option value="5">A+</option>
+                    <option value="4">A</option>
+                    <option value="3">B</option>
+                    <option value="2">C</option>
+                    <option value="1">D</option>
+                    <option value="0">E</option>
+                    <option value="-1">F</option>
+                    <option value="-2">G</option>
+                  </select>
+                </div>
+
+                {/* Godina renovacije */}
+                <div>
+                  <label className="label">Godina renovacije</label>
+                  <input
+                    type="number"
+                    className="input"
+                    placeholder="npr. 2020"
+                    value={formValues.godina_renovacije}
+                    onChange={(e) => setFormValues({...formValues, godina_renovacije: e.target.value})}
+                  />
+                </div>
+
+                {/* Kupaonice */}
+                <div>
+                  <label className="label">WC (bez tuša/kade)</label>
+                  <select
+                    className="select"
+                    value={formValues.wc_broj}
+                    onChange={(e) => setFormValues({...formValues, wc_broj: e.target.value})}
+                  >
+                    <option value="">Odaberite</option>
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3+</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="label">Kupaonica s WC-om</label>
+                  <select
+                    className="select"
+                    value={formValues.kupaonica_s_wc_broj}
+                    onChange={(e) => setFormValues({...formValues, kupaonica_s_wc_broj: e.target.value})}
+                  >
+                    <option value="">Odaberite</option>
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3+</option>
+                  </select>
+                </div>
+
+                {/* Broj etaza */}
+                <div>
+                  <label className="label">Broj etaža</label>
+                  <select
+                    className="select"
+                    value={formValues.broj_etaza}
+                    onChange={(e) => setFormValues({...formValues, broj_etaza: e.target.value})}
+                  >
+                    <option value="">Odaberite</option>
+                    <option value="1">Jednoetažan</option>
+                    <option value="2">Dvoetažan</option>
+                    <option value="3">Višeetažan</option>
+                  </select>
+                </div>
+
+                {/* Broj parkirnih mjesta */}
+                <div>
+                  <label className="label">Broj parkirnih mjesta</label>
+                  <select
+                    className="select"
+                    value={formValues.broj_parkirnih_mjesta}
+                    onChange={(e) => setFormValues({...formValues, broj_parkirnih_mjesta: e.target.value})}
+                  >
+                    <option value="">Odaberite</option>
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3+</option>
+                  </select>
+                </div>
+
+                {/* Apartments: ukupni broj katova */}
+                {propertyType === 'apartments' && (
+                  <div>
+                    <label className="label">Ukupno katova u zgradi</label>
+                    <select
+                      className="select"
+                      value={formValues.ukupni_broj_katova}
+                      onChange={(e) => setFormValues({...formValues, ukupni_broj_katova: e.target.value})}
+                    >
+                      <option value="">Odaberite</option>
+                      {[...Array(15)].map((_, i) => (
+                        <option key={i + 1} value={i + 1}>{i + 1}</option>
+                      ))}
+                      <option value="15">15+</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Apartments: tip stana */}
+                {propertyType === 'apartments' && (
+                  <div>
+                    <label className="label">Tip stana</label>
+                    <select
+                      className="select"
+                      value={formValues.tip_stana}
+                      onChange={(e) => setFormValues({...formValues, tip_stana: e.target.value})}
+                    >
+                      <option value="">Odaberite</option>
+                      <option value="u_stambenoj_zgradi">U stambenoj zgradi</option>
+                      <option value="u_kući">U kući</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Apartments: orijentacija */}
+                {propertyType === 'apartments' && (
+                  <div>
+                    <label className="label">Orijentacija</label>
+                    <div className="flex flex-wrap gap-3 mt-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input type="checkbox" checked={formValues.orijentacija_sjever} onChange={(e) => setFormValues({...formValues, orijentacija_sjever: e.target.checked})} className="w-4 h-4" />
+                        Sjever
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input type="checkbox" checked={formValues.orijentacija_jug} onChange={(e) => setFormValues({...formValues, orijentacija_jug: e.target.checked})} className="w-4 h-4" />
+                        Jug
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input type="checkbox" checked={formValues.orijentacija_istok} onChange={(e) => setFormValues({...formValues, orijentacija_istok: e.target.checked})} className="w-4 h-4" />
+                        Istok
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-sm">
+                        <input type="checkbox" checked={formValues.orijentacija_zapad} onChange={(e) => setFormValues({...formValues, orijentacija_zapad: e.target.checked})} className="w-4 h-4" />
+                        Zapad
+                      </label>
+                    </div>
+                  </div>
+                )}
+
+                {/* Houses: povrsina okucnice */}
+                {propertyType === 'houses' && (
+                  <div>
+                    <label className="label">Površina okućnice (m²)</label>
+                    <input
+                      type="number"
+                      className="input"
+                      placeholder="npr. 500"
+                      value={formValues.povrsina_okucnice}
+                      onChange={(e) => setFormValues({...formValues, povrsina_okucnice: e.target.value})}
+                    />
+                  </div>
+                )}
+
+                {/* Houses: tip kuce */}
+                {propertyType === 'houses' && (
+                  <div>
+                    <label className="label">Tip kuće</label>
+                    <select
+                      className="select"
+                      value={formValues.tip_kuce}
+                      onChange={(e) => setFormValues({...formValues, tip_kuce: e.target.value})}
+                    >
+                      <option value="">Odaberite</option>
+                      <option value="samostojeća">Samostojeća</option>
+                      <option value="dvojna_duplex">Dvojna / Duplex</option>
+                      <option value="u_nizu">U nizu</option>
+                      <option value="stambeno_poslovna">Stambeno-poslovna</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* Houses: vrsta gradnje */}
+                {propertyType === 'houses' && (
+                  <div>
+                    <label className="label">Vrsta gradnje</label>
+                    <select
+                      className="select"
+                      value={formValues.vrsta_gradnje}
+                      onChange={(e) => setFormValues({...formValues, vrsta_gradnje: e.target.value})}
+                    >
+                      <option value="">Odaberite</option>
+                      <option value="zidana_kuća_beton">Zidana / Beton</option>
+                      <option value="opeka">Opeka</option>
+                      <option value="kamena_kuća">Kamena kuća</option>
+                      <option value="montažna_kuća">Montažna kuća</option>
+                      <option value="drvena_kuća">Drvena kuća</option>
+                    </select>
+                  </div>
+                )}
               </div>
 
-              {/* Checkboxes */}
-              <div className="mt-6 flex flex-wrap gap-6">
+              {/* Main Checkboxes */}
+              <div className="mt-6 flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
@@ -492,29 +817,297 @@ export default function HomePage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formValues.ima_balkon}
-                    onChange={(e) => setFormValues({...formValues, ima_balkon: e.target.checked})}
+                    checked={formValues.balkon_balkon}
+                    onChange={(e) => setFormValues({...formValues, balkon_balkon: e.target.checked})}
                     className="w-4 h-4 rounded border-gray-300 text-blue-600"
                   />
-                  <span className="text-sm">Balkon / Terasa</span>
+                  <span className="text-sm">Balkon</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formValues.ima_parking}
-                    onChange={(e) => setFormValues({...formValues, ima_parking: e.target.checked})}
+                    checked={formValues.balkon_terasa}
+                    onChange={(e) => setFormValues({...formValues, balkon_terasa: e.target.checked})}
                     className="w-4 h-4 rounded border-gray-300 text-blue-600"
                   />
-                  <span className="text-sm">Parking</span>
+                  <span className="text-sm">Terasa</span>
                 </label>
+                {propertyType === 'houses' && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formValues.pogled_more}
+                      onChange={(e) => setFormValues({...formValues, pogled_more: e.target.checked})}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                    />
+                    <span className="text-sm">Pogled na more</span>
+                  </label>
+                )}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formValues.dozvola_vlasnicki_list}
+                    onChange={(e) => setFormValues({...formValues, dozvola_vlasnicki_list: e.target.checked})}
+                    className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                  />
+                  <span className="text-sm">Vlasnički list</span>
+                </label>
+              </div>
+
+              {/* Collapsible Advanced Section */}
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="flex items-center gap-2 text-sm text-blue-500 hover:text-blue-600"
+                >
+                  <span>{showAdvanced ? '▼' : '▶'}</span>
+                  <span>Dodatne informacije (opcionalno)</span>
+                </button>
+
+                {showAdvanced && (
+                  <div className="mt-4 p-4 bg-[var(--secondary)] rounded-lg">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {/* Parking type */}
+                      <div>
+                        <label className="label">Vrsta parkinga</label>
+                        <select
+                          className="select"
+                          value={formValues.parking_type}
+                          onChange={(e) => setFormValues({...formValues, parking_type: e.target.value})}
+                        >
+                          <option value="">Nema / Nepoznato</option>
+                          <option value="garaža">Garaža</option>
+                          <option value="garažno_mjesto">Garažno mjesto</option>
+                          <option value="vanjsko_natkriveno">Vanjsko natkriveno</option>
+                          <option value="vanjsko_ne_natkriveno">Vanjsko nenatkriveno</option>
+                          <option value="besplatni_javni">Besplatni javni</option>
+                          <option value="naplatni_javni">Naplatni javni</option>
+                        </select>
+                      </div>
+
+                      {/* Grijanje sustav */}
+                      <div>
+                        <label className="label">Sustav grijanja</label>
+                        <select
+                          className="select"
+                          value={formValues.grijanje_sustav}
+                          onChange={(e) => setFormValues({...formValues, grijanje_sustav: e.target.value})}
+                        >
+                          <option value="">Nepoznato</option>
+                          <option value="etažno_plinsko_centralno">Etažno plinsko centralno</option>
+                          <option value="gradska_toplana">Gradska toplana</option>
+                          <option value="dizalica_topline">Dizalica topline</option>
+                          <option value="grijalice_i_radijatori_na_struju">Grijalice na struju</option>
+                          {propertyType === 'houses' && (
+                            <>
+                              <option value="kotlovnica_na_plin">Kotlovnica na plin</option>
+                              <option value="kotlovnica_na_drva">Kotlovnica na drva</option>
+                            </>
+                          )}
+                          <option value="peć_na_drva">Peć na drva</option>
+                          <option value="peć_na_plin">Peć na plin</option>
+                          <option value="nema_sustav_grijanja">Nema grijanja</option>
+                        </select>
+                      </div>
+
+                      {/* Klima */}
+                      <div className="flex items-end">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.grijanje_klima}
+                            onChange={(e) => setFormValues({...formValues, grijanje_klima: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Klima uređaj</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* More checkboxes */}
+                    <div className="mt-4 flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.balkon_lodja}
+                          onChange={(e) => setFormValues({...formValues, balkon_lodja: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Lođa</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_bazen}
+                          onChange={(e) => setFormValues({...formValues, objekt_bazen: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Bazen</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_dvoriste}
+                          onChange={(e) => setFormValues({...formValues, objekt_dvoriste: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Dvorište / Vrt</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_podrum}
+                          onChange={(e) => setFormValues({...formValues, objekt_podrum: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Podrum</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_rostilj}
+                          onChange={(e) => setFormValues({...formValues, objekt_rostilj: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Roštilj</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_spremiste}
+                          onChange={(e) => setFormValues({...formValues, objekt_spremiste: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Spremište</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_vrtna_kucica}
+                          onChange={(e) => setFormValues({...formValues, objekt_vrtna_kucica: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Vrtna kućica</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formValues.objekt_zimski_vrt}
+                          onChange={(e) => setFormValues({...formValues, objekt_zimski_vrt: e.target.checked})}
+                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                        />
+                        <span className="text-sm">Zimski vrt</span>
+                      </label>
+                    </div>
+
+                    {/* Dozvole */}
+                    <div className="mt-4">
+                      <p className="text-sm text-[var(--muted-foreground)] mb-2">Dozvole</p>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.dozvola_gradevinska}
+                            onChange={(e) => setFormValues({...formValues, dozvola_gradevinska: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Građevinska dozvola</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.dozvola_uporabna}
+                            onChange={(e) => setFormValues({...formValues, dozvola_uporabna: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Uporabna dozvola</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Funk features */}
+                    <div className="mt-4">
+                      <p className="text-sm text-[var(--muted-foreground)] mb-2">Dodatna oprema</p>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.funk_kamin}
+                            onChange={(e) => setFormValues({...formValues, funk_kamin: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Kamin</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.funk_podno_grijanje}
+                            onChange={(e) => setFormValues({...formValues, funk_podno_grijanje: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Podno grijanje</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.funk_alarm}
+                            onChange={(e) => setFormValues({...formValues, funk_alarm: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Alarm</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.funk_sauna}
+                            onChange={(e) => setFormValues({...formValues, funk_sauna: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Sauna</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Alt energija */}
+                    <div className="mt-4">
+                      <p className="text-sm text-[var(--muted-foreground)] mb-2">Alternativni izvori energije</p>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.alt_solarni_paneli}
+                            onChange={(e) => setFormValues({...formValues, alt_solarni_paneli: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Solarni paneli</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formValues.alt_toplinske_pumpe}
+                            onChange={(e) => setFormValues({...formValues, alt_toplinske_pumpe: e.target.checked})}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          />
+                          <span className="text-sm">Toplinske pumpe</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Submit Button */}
               <div className="mt-8">
+                {backendReady === false && (
+                  <p className="text-sm text-amber-500 mb-2">
+                    ⏳ Model se pokreće (može potrajati do 60 sekundi)...
+                  </p>
+                )}
                 <button
                   className="btn-primary w-full md:w-auto flex items-center justify-center gap-2"
                   onClick={handlePredict}
-                  disabled={predicting || !formValues.stambena_povrsina}
+                  disabled={predicting || !formValues.stambena_povrsina || !formValues.zupanija}
                 >
                   {predicting ? (
                     <>
@@ -528,6 +1121,9 @@ export default function HomePage() {
                     </>
                   )}
                 </button>
+                {predictionError && (
+                  <p className="mt-2 text-sm text-red-500">{predictionError}</p>
+                )}
               </div>
             </div>
 
@@ -567,7 +1163,10 @@ export default function HomePage() {
 
                   <p className="text-xs text-center text-slate-500 mt-6">
                     <Info className="w-3 h-3 inline-block mr-1" />
-                    Procjena je bazirana na modelu treniranom na {formatNumber(edaData?.apartments.total_count || 0)} stanova i {formatNumber(edaData?.houses.total_count || 0)} kuća
+                    {prediction.modelVersion && (
+                      <span>Model {prediction.modelVersion.toUpperCase()} ({prediction.featuresUsed} značajki) • </span>
+                    )}
+                    Trenirano na {formatNumber(edaData?.apartments.total_count || 0)} stanova i {formatNumber(edaData?.houses.total_count || 0)} kuća
                   </p>
                 </div>
               </div>
@@ -744,8 +1343,8 @@ export default function HomePage() {
               <ResponsiveContainer width="100%" height={350}>
                 <ScatterChart margin={{ bottom: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="stambena_povrsina" name="Površina" unit=" m²" tick={{ fontSize: 11 }} domain={[0, 'auto']} />
-                  <YAxis dataKey="cijena" name="Cijena" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} domain={[0, 'auto']} />
+                  <XAxis type="number" dataKey="stambena_povrsina" name="Površina" unit=" m²" tick={{ fontSize: 11 }} domain={[0, 'auto']} />
+                  <YAxis type="number" dataKey="cijena" name="Cijena" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} domain={[0, 'auto']} />
                   <Tooltip
                     contentStyle={{
                       background: 'var(--card)',

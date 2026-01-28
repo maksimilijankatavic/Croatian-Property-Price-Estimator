@@ -118,33 +118,84 @@ export interface FormData {
 
 export interface PredictionInput {
   property_type: 'apartments' | 'houses';
+
+  // Location (required)
   zupanija: string;
   grad_opcina: string;
-  naselje: string;
+  naselje?: string;
+
+  // Core numerics
   stambena_povrsina: number;
-  broj_soba: number;
+  broj_soba?: number;
   godina_izgradnje?: number;
+  godina_renovacije?: number;
+  broj_parkirnih_mjesta?: number;
+  broj_etaza?: number;
+  energetski_razred?: number; // A+=5, A=4, B=3, C=2, D=1, E=0, F=-1, G=-2
+  wc_broj?: number;
+  kupaonica_s_wc_broj?: number;
+
+  // Apartments only
   kat?: number;
-  ima_lift?: boolean;
-  ima_balkon?: boolean;
-  ima_parking?: boolean;
-  novogradnja?: boolean;
+  ukupni_broj_katova?: number;
+  tip_stana?: string; // "u_kući" or "u_stambenoj_zgradi"
+
+  // Houses only
+  povrsina_okucnice?: number;
+  pogled_more?: number;
+  tip_kuce?: string; // "samostojeća", "dvojna_duplex", "u_nizu", "stambeno_poslovna"
+  vrsta_gradnje?: string; // "zidana_kuća_beton", "kamena_kuća", "montažna_kuća", "drvena_kuća", "opeka"
+
+  // Binary flags
+  podatak_novogradnja?: number;
+  podatak_lift?: number;
+  balkon_balkon?: number;
+  balkon_terasa?: number;
+  balkon_lodja_loggia?: number;
+  grijanje_klima?: number;
+  objekt_bazen?: number;
+  objekt_dvoriste_vrt?: number;
+  objekt_podrum?: number;
+  objekt_rostilj?: number;
+  objekt_spremiste?: number;
+  objekt_vrtna_kucica?: number;
+  objekt_zimski_vrt?: number;
+
+  // Orientation (apartments only)
+  orijentacija_istok?: number;
+  orijentacija_jug?: number;
+  orijentacija_sjever?: number;
+  orijentacija_zapad?: number;
+
+  // Funk features
+  funk_kamin?: number;
+  funk_podno_grijanje?: number;
+  funk_alarm?: number;
+  funk_sauna?: number;
+
+  // Alt energija
+  alt_solarni_paneli?: number;
+  alt_toplinske_pumpe?: number;
+
+  // Parking type
+  parking_type?: string;
+
+  // Heating system
+  grijanje_sustav?: string;
+
+  // Permits
+  dozvola_vlasnicki_list?: number;
+  dozvola_uporabna_dozvola?: number;
+  dozvola_gradevinska_dozvola?: number;
 }
 
 export interface PredictionResult {
   predicted_price: number;
+  price_per_m2: number;
   price_range: {
     low: number;
     high: number;
   };
-  price_per_m2: number;
-  feature_contributions: {
-    feature: string;
-    contribution: number;
-    description: string;
-  }[];
-  comparison_by_city: {
-    city: string;
-    predicted_price: number;
-  }[];
+  model_version: string;
+  features_used: number;
 }
