@@ -283,19 +283,43 @@ export default function HomePage() {
         grijanje_sustav: formValues.grijanje_sustav || undefined,
       };
 
-      const result = await predictPrice(input);
+      // Build city-to-zupanija mapping from location hierarchy
+      const cityToZupanija: Record<string, string> = {};
+      if (locationHierarchy) {
+        for (const [zup, grads] of Object.entries(locationHierarchy)) {
+          for (const grad of Object.keys(grads as Record<string, string[]>)) {
+            cityToZupanija[grad] = zup;
+          }
+        }
+      }
 
-      // Generate city comparisons using encodings (client-side for UX)
-      const encodings = formData[propertyType].encodings;
-      const areaFactor = area / 80;
-      const comparisons = Object.entries(encodings?.grad_opcina?.mapping || {})
-        .filter(([city]) => city !== formValues.grad_opcina && MAIN_CITIES.includes(city))
-        .map(([city, enc]) => ({
-          city,
-          price: Math.round(Math.exp(enc as number) * areaFactor),
-        }))
-        .sort((a, b) => b.price - a.price)
-        .slice(0, 5);
+      // Determine comparison cities (exclude the user's selected city)
+      const comparisonCities = MAIN_CITIES.filter(city => {
+        if (city === formValues.grad_opcina) return false;
+        // Zagreb special case: skip if user already selected a city in Grad Zagreb
+        if (city === 'Zagreb' && formValues.zupanija === 'Grad Zagreb') return false;
+        return cityToZupanija[city] !== undefined;
+      });
+
+      // Fire main prediction + comparison predictions in parallel
+      const mainPromise = predictPrice(input);
+      const compPromises = comparisonCities.map(city => {
+        const compInput: PredictionInput = {
+          ...input,
+          zupanija: cityToZupanija[city],
+          grad_opcina: city,
+          naselje: undefined,
+        };
+        return predictPrice(compInput)
+          .then(r => ({ city, price: r.predicted_price }))
+          .catch(() => null);
+      });
+
+      const [result, ...compResults] = await Promise.all([mainPromise, ...compPromises]);
+
+      const comparisons = (compResults as ({ city: string; price: number } | null)[])
+        .filter((c): c is { city: string; price: number } => c !== null)
+        .sort((a, b) => b.price - a.price);
 
       setPrediction({
         price: result.predicted_price,
@@ -851,19 +875,19 @@ export default function HomePage() {
                     <label className="label">Orijentacija</label>
                     <div className="flex flex-wrap gap-3 mt-1">
                       <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                        <input type="checkbox" checked={formValues.orijentacija_sjever} onChange={(e) => setFormValues({...formValues, orijentacija_sjever: e.target.checked})} className="w-4 h-4" />
+                        <input type="checkbox" checked={formValues.orijentacija_sjever} onChange={(e) => setFormValues({...formValues, orijentacija_sjever: e.target.checked})} className="checkbox" />
                         Sjever
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                        <input type="checkbox" checked={formValues.orijentacija_jug} onChange={(e) => setFormValues({...formValues, orijentacija_jug: e.target.checked})} className="w-4 h-4" />
+                        <input type="checkbox" checked={formValues.orijentacija_jug} onChange={(e) => setFormValues({...formValues, orijentacija_jug: e.target.checked})} className="checkbox" />
                         Jug
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                        <input type="checkbox" checked={formValues.orijentacija_istok} onChange={(e) => setFormValues({...formValues, orijentacija_istok: e.target.checked})} className="w-4 h-4" />
+                        <input type="checkbox" checked={formValues.orijentacija_istok} onChange={(e) => setFormValues({...formValues, orijentacija_istok: e.target.checked})} className="checkbox" />
                         Istok
                       </label>
                       <label className="flex items-center gap-1.5 cursor-pointer text-sm">
-                        <input type="checkbox" checked={formValues.orijentacija_zapad} onChange={(e) => setFormValues({...formValues, orijentacija_zapad: e.target.checked})} className="w-4 h-4" />
+                        <input type="checkbox" checked={formValues.orijentacija_zapad} onChange={(e) => setFormValues({...formValues, orijentacija_zapad: e.target.checked})} className="checkbox" />
                         Zapad
                       </label>
                     </div>
@@ -929,7 +953,7 @@ export default function HomePage() {
                     type="checkbox"
                     checked={formValues.novogradnja}
                     onChange={(e) => setFormValues({...formValues, novogradnja: e.target.checked})}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                    className="checkbox"
                   />
                   <span className="text-sm">Novogradnja</span>
                 </label>
@@ -939,7 +963,7 @@ export default function HomePage() {
                       type="checkbox"
                       checked={formValues.ima_lift}
                       onChange={(e) => setFormValues({...formValues, ima_lift: e.target.checked})}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                      className="checkbox"
                     />
                     <span className="text-sm">Lift</span>
                   </label>
@@ -949,7 +973,7 @@ export default function HomePage() {
                     type="checkbox"
                     checked={formValues.balkon_balkon}
                     onChange={(e) => setFormValues({...formValues, balkon_balkon: e.target.checked})}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                    className="checkbox"
                   />
                   <span className="text-sm">Balkon</span>
                 </label>
@@ -958,7 +982,7 @@ export default function HomePage() {
                     type="checkbox"
                     checked={formValues.balkon_terasa}
                     onChange={(e) => setFormValues({...formValues, balkon_terasa: e.target.checked})}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                    className="checkbox"
                   />
                   <span className="text-sm">Terasa</span>
                 </label>
@@ -968,7 +992,7 @@ export default function HomePage() {
                       type="checkbox"
                       checked={formValues.pogled_more}
                       onChange={(e) => setFormValues({...formValues, pogled_more: e.target.checked})}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                      className="checkbox"
                     />
                     <span className="text-sm">Pogled na more</span>
                   </label>
@@ -978,7 +1002,7 @@ export default function HomePage() {
                     type="checkbox"
                     checked={formValues.dozvola_vlasnicki_list}
                     onChange={(e) => setFormValues({...formValues, dozvola_vlasnicki_list: e.target.checked})}
-                    className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                    className="checkbox"
                   />
                   <span className="text-sm">Vlasnički list</span>
                 </label>
@@ -1048,7 +1072,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.grijanje_klima}
                             onChange={(e) => setFormValues({...formValues, grijanje_klima: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Klima uređaj</span>
                         </label>
@@ -1062,7 +1086,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.balkon_lodja}
                           onChange={(e) => setFormValues({...formValues, balkon_lodja: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Lođa</span>
                       </label>
@@ -1071,7 +1095,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_bazen}
                           onChange={(e) => setFormValues({...formValues, objekt_bazen: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Bazen</span>
                       </label>
@@ -1080,7 +1104,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_dvoriste}
                           onChange={(e) => setFormValues({...formValues, objekt_dvoriste: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Dvorište / Vrt</span>
                       </label>
@@ -1089,7 +1113,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_podrum}
                           onChange={(e) => setFormValues({...formValues, objekt_podrum: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Podrum</span>
                       </label>
@@ -1098,7 +1122,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_rostilj}
                           onChange={(e) => setFormValues({...formValues, objekt_rostilj: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Roštilj</span>
                       </label>
@@ -1107,7 +1131,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_spremiste}
                           onChange={(e) => setFormValues({...formValues, objekt_spremiste: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Spremište</span>
                       </label>
@@ -1116,7 +1140,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_vrtna_kucica}
                           onChange={(e) => setFormValues({...formValues, objekt_vrtna_kucica: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Vrtna kućica</span>
                       </label>
@@ -1125,7 +1149,7 @@ export default function HomePage() {
                           type="checkbox"
                           checked={formValues.objekt_zimski_vrt}
                           onChange={(e) => setFormValues({...formValues, objekt_zimski_vrt: e.target.checked})}
-                          className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                          className="checkbox"
                         />
                         <span className="text-sm">Zimski vrt</span>
                       </label>
@@ -1140,7 +1164,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.dozvola_gradevinska}
                             onChange={(e) => setFormValues({...formValues, dozvola_gradevinska: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Građevinska dozvola</span>
                         </label>
@@ -1149,7 +1173,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.dozvola_uporabna}
                             onChange={(e) => setFormValues({...formValues, dozvola_uporabna: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Uporabna dozvola</span>
                         </label>
@@ -1165,7 +1189,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.funk_kamin}
                             onChange={(e) => setFormValues({...formValues, funk_kamin: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Kamin</span>
                         </label>
@@ -1174,7 +1198,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.funk_podno_grijanje}
                             onChange={(e) => setFormValues({...formValues, funk_podno_grijanje: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Podno grijanje</span>
                         </label>
@@ -1183,7 +1207,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.funk_alarm}
                             onChange={(e) => setFormValues({...formValues, funk_alarm: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Alarm</span>
                         </label>
@@ -1192,7 +1216,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.funk_sauna}
                             onChange={(e) => setFormValues({...formValues, funk_sauna: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Sauna</span>
                         </label>
@@ -1208,7 +1232,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.alt_solarni_paneli}
                             onChange={(e) => setFormValues({...formValues, alt_solarni_paneli: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Solarni paneli</span>
                         </label>
@@ -1217,7 +1241,7 @@ export default function HomePage() {
                             type="checkbox"
                             checked={formValues.alt_toplinske_pumpe}
                             onChange={(e) => setFormValues({...formValues, alt_toplinske_pumpe: e.target.checked})}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600"
+                            className="checkbox"
                           />
                           <span className="text-sm">Toplinske pumpe</span>
                         </label>
@@ -1261,35 +1285,40 @@ export default function HomePage() {
             {prediction && (
               <div className="mt-8 animate-fade-in">
                 <div className="card bg-gradient-to-br from-blue-950 to-purple-950 border-blue-800">
-                  <div className="text-center mb-8">
+                  {/* Main price + price per m² */}
+                  <div className="text-center mb-6">
                     <p className="text-sm text-slate-400 mb-2">Procijenjena cijena</p>
                     <p className="text-5xl font-bold text-blue-400">{formatPrice(prediction.price)}</p>
-                    <p className="text-sm text-slate-400 mt-2">
+                    <p className="text-lg text-slate-300 mt-2">{formatNumber(prediction.pricePerM2)} €/m²</p>
+                    <p className="text-sm text-slate-400 mt-1">
                       Raspon: {formatPrice(prediction.range.low)} - {formatPrice(prediction.range.high)}
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="stat-card bg-slate-800/50">
-                      <div className="stat-value text-cyan-400">{formatNumber(prediction.pricePerM2)} €</div>
-                      <div className="stat-label text-slate-400">Cijena po m²</div>
-                    </div>
-
-                    <div className="card bg-slate-800/50 border-slate-700">
-                      <h4 className="font-semibold mb-4 flex items-center gap-2 text-slate-200">
+                  {/* City comparisons - full width grid */}
+                  {prediction.comparisons.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold mb-3 flex items-center justify-center gap-2 text-slate-300 text-sm">
                         <MapPin className="w-4 h-4" />
-                        Usporedba s drugim gradovima
+                        Ista nekretnina u drugim gradovima
                       </h4>
-                      <div className="space-y-2">
-                        {prediction.comparisons.map((comp) => (
-                          <div key={comp.city} className="flex justify-between items-center text-sm">
-                            <span className="text-slate-300">{comp.city}</span>
-                            <span className="font-medium text-slate-200">{formatPrice(comp.price)}</span>
-                          </div>
-                        ))}
+                      <div className="flex flex-wrap justify-center gap-2">
+                        {prediction.comparisons.map((comp) => {
+                          const diff = ((comp.price - prediction.price) / prediction.price) * 100;
+                          const isMore = diff > 0;
+                          return (
+                            <div key={comp.city} className="bg-slate-700/40 rounded-lg p-3 text-center w-[calc(33.333%-0.375rem)] min-w-[140px] border border-slate-600/30">
+                              <p className="text-sm text-slate-400 truncate">{comp.city}</p>
+                              <p className="font-semibold text-slate-100 mt-1">{formatPrice(comp.price)}</p>
+                              <p className={`text-xs mt-0.5 ${isMore ? 'text-red-400' : 'text-green-400'}`}>
+                                {isMore ? '+' : ''}{diff.toFixed(0)}%
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <p className="text-xs text-center text-slate-500 mt-6">
                     <Info className="w-3 h-3 inline-block mr-1" />
