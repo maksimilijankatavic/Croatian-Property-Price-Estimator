@@ -1,6 +1,6 @@
 # Croatian Property Price Estimator
 
-**Live:** [croatian-property-price-estimator.maksimilijankatavic.com](https://croatian-property-price-estimator.maksimilijankatavic.com/)
+**Live:** [croatian-property-price-estimator.maksimilijankatavic.com](https://croatian-property-price-estimator.maksimilijankatavic.com/) | **API:** [Hugging Face Space](https://huggingface.co/spaces/maksimilijankatavic/Croatian-Property-Price-Estimator)
 
 Sustav za procjenu cijena nekretnina u Hrvatskoj temeljen na strojnom ucenju. Koristi LightGBM modele trenirane na stvarnim podacima s hrvatskog trzista nekretnina, s interaktivnim web suceljem za korisnike i FastAPI backendom za predikcije.
 
