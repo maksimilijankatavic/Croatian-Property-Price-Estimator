@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Procjenitelj Cijena Nekretnina | Hrvatska",
+  title: "Procjenitelj Cijena",
   description: "Procjena cijena stanova i kuća u Hrvatskoj temeljem stvarnih podataka s tržišta nekretnina. AI model za predviđanje cijena nekretnina.",
 };
 
