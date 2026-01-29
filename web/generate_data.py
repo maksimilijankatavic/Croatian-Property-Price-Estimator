@@ -123,10 +123,16 @@ def generate_detailed_eda(df, property_type):
         {'rooms': float(k), 'count': int(v)} for k, v in rooms_dist.items()
     ]
 
-    # Scatter data (sample for performance)
-    sample_size = min(500, len(df))
-    scatter_sample = df.sample(n=sample_size, random_state=42)[['stambena_povrsina', 'cijena', 'zupanija', 'grad_opcina']]
-    result['scatter'] = scatter_sample.to_dict('records')
+    # Scatter data (all records for per-city distribution computation)
+    scatter_cols = ['stambena_povrsina', 'cijena', 'zupanija', 'grad_opcina', 'broj_soba', 'godina_izgradnje']
+    scatter_df = df[scatter_cols].copy()
+    records = scatter_df.to_dict('records')
+    # Replace NaN with None for valid JSON serialization
+    for rec in records:
+        for k, v in rec.items():
+            if isinstance(v, float) and np.isnan(v):
+                rec[k] = None
+    result['scatter'] = records
 
     # Top 10 most expensive cities
     by_grad_df = pd.DataFrame(result['by_grad'])

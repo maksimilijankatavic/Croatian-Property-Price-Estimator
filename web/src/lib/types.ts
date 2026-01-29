@@ -47,6 +47,8 @@ export interface ScatterPoint {
   cijena: number;
   zupanija: string;
   grad_opcina: string;
+  broj_soba?: number | null;
+  godina_izgradnje?: number | null;
 }
 
 export interface CityData {

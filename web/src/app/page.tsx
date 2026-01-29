@@ -136,6 +136,7 @@ export default function HomePage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [predictionError, setPredictionError] = useState<string | null>(null);
   const [backendReady, setBackendReady] = useState<boolean | null>(null);
+  const [removeOutliers, setRemoveOutliers] = useState(true);
 
   // Prediction state
   const [prediction, setPrediction] = useState<{
@@ -316,42 +317,172 @@ export default function HomePage() {
     return edaData?.cities?.filter(city => city.name !== 'Solin') || [];
   }, [edaData]);
 
-  // Get current data based on property type and selected city
-  const getCurrentData = () => {
+  // Memoized: compute all EDA data (outlier filtering, distributions, stats)
+  const currentData = useMemo(() => {
     if (!edaData) return null;
     const data = edaData[propertyType];
 
+    // --- Helper: IQR outlier filter (single-pass where possible) ---
+    const filterOutliers = (scatter: typeof data.scatter) => {
+      if (scatter.length < 4) return scatter;
+      let filtered = scatter.filter(d => d.cijena >= 5000 && d.stambena_povrsina >= 10 && d.stambena_povrsina <= 2000);
+      if (filtered.length < 4) return filtered;
+      const percentile = (arr: number[], p: number) => arr[Math.floor(arr.length * p)];
+      const prices = filtered.map(d => d.cijena).sort((a, b) => a - b);
+      const pQ1 = percentile(prices, 0.25), pQ3 = percentile(prices, 0.75), pIqr = pQ3 - pQ1;
+      const areas = filtered.map(d => d.stambena_povrsina).sort((a, b) => a - b);
+      const aQ1 = percentile(areas, 0.25), aQ3 = percentile(areas, 0.75), aIqr = aQ3 - aQ1;
+      const pm2s = filtered.map(d => d.cijena / d.stambena_povrsina).sort((a, b) => a - b);
+      const mQ1 = percentile(pm2s, 0.25), mQ3 = percentile(pm2s, 0.75), mIqr = mQ3 - mQ1;
+      const pLo = pQ1 - 1.5 * pIqr, pHi = pQ3 + 1.5 * pIqr;
+      const aLo = aQ1 - 1.5 * aIqr, aHi = aQ3 + 1.5 * aIqr;
+      const mLo = mQ1 - 1.5 * mIqr, mHi = mQ3 + 1.5 * mIqr;
+      return filtered.filter(d => {
+        const pm2 = d.cijena / d.stambena_povrsina;
+        return d.cijena >= pLo && d.cijena <= pHi
+          && d.stambena_povrsina >= aLo && d.stambena_povrsina <= aHi
+          && pm2 >= mLo && pm2 <= mHi;
+      });
+    };
+
+    // --- Helper: compute stats + distributions in a single pass ---
+    const computeAll = (scatter: typeof data.scatter) => {
+      const n = scatter.length;
+      if (n === 0) return null;
+
+      // Single pass: accumulate sums + bin counts
+      let sumP = 0, sumA = 0, sumM = 0;
+      const priceBinCounts: Record<number, number> = {};
+      const areaBinCounts: Record<number, number> = {};
+      const m2BinCounts: Record<number, number> = {};
+      const roomsCounts: Record<number, number> = {};
+      const yearCounts: Record<number, number> = {};
+
+      for (let i = 0; i < n; i++) {
+        const d = scatter[i];
+        const pm2 = d.cijena / d.stambena_povrsina;
+        sumP += d.cijena;
+        sumA += d.stambena_povrsina;
+        sumM += pm2;
+
+        // Price bin (50k steps)
+        const pBin = d.cijena >= 1000000 ? 1000000 : Math.floor(d.cijena / 50000) * 50000;
+        priceBinCounts[pBin] = (priceBinCounts[pBin] || 0) + 1;
+
+        // Area bin (20 steps)
+        const aBin = d.stambena_povrsina >= 300 ? 300 : Math.floor(d.stambena_povrsina / 20) * 20;
+        areaBinCounts[aBin] = (areaBinCounts[aBin] || 0) + 1;
+
+        // Price/m2 bin (500 steps)
+        const mBin = pm2 >= 10000 ? 10000 : Math.floor(pm2 / 500) * 500;
+        m2BinCounts[mBin] = (m2BinCounts[mBin] || 0) + 1;
+
+        // Rooms
+        if (d.broj_soba != null) roomsCounts[d.broj_soba] = (roomsCounts[d.broj_soba] || 0) + 1;
+
+        // Year decade
+        if (d.godina_izgradnje != null) {
+          const dec = Math.floor(d.godina_izgradnje / 10) * 10;
+          if (dec >= 1900 && dec < 2030) yearCounts[dec] = (yearCounts[dec] || 0) + 1;
+        }
+      }
+
+      // Medians (need sorted arrays)
+      const prices = scatter.map(d => d.cijena).sort((a, b) => a - b);
+      const areas = scatter.map(d => d.stambena_povrsina).sort((a, b) => a - b);
+      const pm2arr = scatter.map(d => d.cijena / d.stambena_povrsina).sort((a, b) => a - b);
+      const mid = Math.floor(n / 2);
+      const medianP = n % 2 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+      const medianA = n % 2 ? areas[mid] : (areas[mid - 1] + areas[mid]) / 2;
+      const medianM = n % 2 ? pm2arr[mid] : (pm2arr[mid - 1] + pm2arr[mid]) / 2;
+
+      // Std dev (second pass)
+      const meanP = sumP / n;
+      let sumSqP = 0;
+      for (let i = 0; i < n; i++) sumSqP += (scatter[i].cijena - meanP) ** 2;
+
+      // Build sorted bin arrays
+      const toBins = (counts: Record<number, number>, step: number) =>
+        Object.entries(counts)
+          .map(([k, count]) => ({ min: Number(k), max: Number(k) + step, count }))
+          .sort((a, b) => a.min - b.min);
+
+      const yearBins = Object.entries(yearCounts)
+        .map(([k, count]) => ({ decade: `${k}s`, min: Number(k), max: Number(k) + 10, count }))
+        .sort((a, b) => a.min - b.min);
+
+      return {
+        stats: {
+          total_count: n,
+          avg_price: meanP,
+          median_price: medianP,
+          min_price: prices[0],
+          max_price: prices[n - 1],
+          std_price: Math.sqrt(sumSqP / n),
+          avg_area: sumA / n,
+          median_area: medianA,
+          avg_price_per_m2: sumM / n,
+          median_price_per_m2: medianM,
+        },
+        distributions: {
+          price_distribution: toBins(priceBinCounts, 50000),
+          area_distribution: toBins(areaBinCounts, 20),
+          price_per_m2_distribution: toBins(m2BinCounts, 500),
+          rooms_distribution: Object.entries(roomsCounts)
+            .map(([rooms, count]) => ({ rooms: parseFloat(rooms), count }))
+            .sort((a, b) => a.rooms - b.rooms),
+          year_distribution: yearBins.length > 0 ? yearBins : undefined,
+        },
+      };
+    };
+
+    // --- Build current data ---
     if (selectedCity) {
-      // Special handling for Zagreb - filter by zupanija instead of grad_opcina
       const isZagreb = selectedCity === 'Zagreb';
       const cityGrad = isZagreb
         ? data.by_zupanija?.find(d => d.zupanija === 'Grad Zagreb')
         : data.by_grad?.find(d => d.grad_opcina === selectedCity);
 
-      const filteredScatter = isZagreb
+      let filteredScatter = isZagreb
         ? data.scatter?.filter(d => d.zupanija === 'Grad Zagreb') || []
         : data.scatter?.filter(d => d.grad_opcina === selectedCity) || [];
 
+      if (removeOutliers) filteredScatter = filterOutliers(filteredScatter);
+
+      const computed = computeAll(filteredScatter);
+
       return {
         ...data,
-        // Override top-level stats with city-specific data
-        total_count: cityGrad?.count ?? data.total_count,
-        avg_price: cityGrad?.price_mean ?? data.avg_price,
-        median_price: cityGrad?.price_median ?? data.median_price,
-        min_price: cityGrad?.price_min ?? data.min_price,
-        max_price: cityGrad?.price_max ?? data.max_price,
-        std_price: cityGrad?.price_std ?? data.std_price,
-        avg_area: cityGrad?.area_mean ?? data.avg_area,
-        median_area: cityGrad?.area_median ?? data.median_area,
-        avg_price_per_m2: cityGrad?.price_per_m2 ?? data.avg_price_per_m2,
-        median_price_per_m2: cityGrad?.price_per_m2 ?? data.median_price_per_m2,
+        total_count: computed?.stats.total_count ?? cityGrad?.count ?? data.total_count,
+        avg_price: computed?.stats.avg_price ?? cityGrad?.price_mean ?? data.avg_price,
+        median_price: computed?.stats.median_price ?? cityGrad?.price_median ?? data.median_price,
+        min_price: computed?.stats.min_price ?? cityGrad?.price_min ?? data.min_price,
+        max_price: computed?.stats.max_price ?? cityGrad?.price_max ?? data.max_price,
+        std_price: computed?.stats.std_price ?? cityGrad?.price_std ?? data.std_price,
+        avg_area: computed?.stats.avg_area ?? cityGrad?.area_mean ?? data.avg_area,
+        median_area: computed?.stats.median_area ?? cityGrad?.area_median ?? data.median_area,
+        avg_price_per_m2: computed?.stats.avg_price_per_m2 ?? cityGrad?.price_per_m2 ?? data.avg_price_per_m2,
+        median_price_per_m2: computed?.stats.median_price_per_m2 ?? cityGrad?.price_per_m2 ?? data.median_price_per_m2,
         scatter: filteredScatter,
+        ...(computed?.distributions || {}),
         selectedCityData: cityGrad,
       };
     }
 
+    if (removeOutliers) {
+      const filtered = filterOutliers(data.scatter || []);
+      const computed = computeAll(filtered);
+
+      return {
+        ...data,
+        ...(computed?.stats || {}),
+        scatter: filtered,
+        ...(computed?.distributions || {}),
+      };
+    }
+
     return data;
-  };
+  }, [edaData, propertyType, selectedCity, removeOutliers]);
 
   // Get only main cities for the top lists
   const getMainCitiesData = () => {
@@ -369,7 +500,6 @@ export default function HomePage() {
     };
   };
 
-  const currentData = getCurrentData();
   const mainCitiesData = getMainCitiesData();
 
   if (loading) {
@@ -1249,6 +1379,21 @@ export default function HomePage() {
                 : ` ${formatNumber(currentData?.total_count || 0)} nekretnina u bazi`
               }
             </p>
+            <div className="flex justify-center mt-3">
+              <button
+                onClick={() => setRemoveOutliers(!removeOutliers)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                  removeOutliers
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-[var(--card)] text-[var(--muted-foreground)] border border-[var(--border)] hover:border-blue-500'
+                }`}
+              >
+                <div className={`w-8 h-4 rounded-full relative transition-colors ${removeOutliers ? 'bg-blue-400' : 'bg-[var(--border)]'}`}>
+                  <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${removeOutliers ? 'left-4' : 'left-0.5'}`} />
+                </div>
+                Bez outliera (IQR)
+              </button>
+            </div>
           </div>
 
           {/* Stats Overview */}
@@ -1365,7 +1510,9 @@ export default function HomePage() {
                       return null;
                     }}
                   />
-                  <Scatter data={currentData?.scatter} fill={CHART_COLORS.tertiary} fillOpacity={0.6} />
+                  <Scatter data={currentData?.scatter?.length && currentData.scatter.length > 500
+                    ? currentData.scatter.filter((_, i) => i % Math.ceil(currentData.scatter.length / 500) === 0)
+                    : currentData?.scatter} fill={CHART_COLORS.tertiary} fillOpacity={0.6} />
                 </ScatterChart>
               </ResponsiveContainer>
             </div>
