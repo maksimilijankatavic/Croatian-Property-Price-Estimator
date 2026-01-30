@@ -123,7 +123,7 @@ export interface PredictionInput {
 
   // Location (required)
   zupanija: string;
-  grad_opcina: string;
+  grad_opcina?: string;
   naselje?: string;
 
   // Core numerics

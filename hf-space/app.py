@@ -57,7 +57,7 @@ class PredictionRequest(BaseModel):
 
     # Location (required)
     zupanija: str
-    grad_opcina: str
+    grad_opcina: Optional[str] = None
     naselje: Optional[str] = None
 
     # Core numerics

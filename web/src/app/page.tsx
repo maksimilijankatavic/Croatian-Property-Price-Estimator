@@ -298,18 +298,18 @@ export default function HomePage() {
         if (city === formValues.grad_opcina) return false;
         // Zagreb special case: skip if user already selected a city in Grad Zagreb
         if (city === 'Zagreb' && formValues.zupanija === 'Grad Zagreb') return false;
+        // Zagreb is a županija, not a grad_opcina, so allow it without hierarchy check
+        if (city === 'Zagreb') return true;
         return cityToZupanija[city] !== undefined;
       });
 
       // Fire main prediction + comparison predictions in parallel
       const mainPromise = predictPrice(input);
       const compPromises = comparisonCities.map(city => {
-        const compInput: PredictionInput = {
-          ...input,
-          zupanija: cityToZupanija[city],
-          grad_opcina: city,
-          naselje: undefined,
-        };
+        // Zagreb special case: use Grad Zagreb as županija, omit grad_opcina
+        const compInput: PredictionInput = city === 'Zagreb'
+          ? { ...input, zupanija: 'Grad Zagreb', grad_opcina: undefined, naselje: undefined }
+          : { ...input, zupanija: cityToZupanija[city], grad_opcina: city, naselje: undefined };
         return predictPrice(compInput)
           .then(r => ({ city, price: r.predicted_price }))
           .catch(() => null);
@@ -513,8 +513,14 @@ export default function HomePage() {
     if (!currentData?.by_grad) return { expensive: [], affordable: [] };
 
     const mainCitiesData = currentData.by_grad.filter(city =>
-      MAIN_CITIES.includes(city.grad_opcina || '')
+      MAIN_CITIES.includes(city.grad_opcina || '') && city.grad_opcina !== 'Zagreb'
     );
+
+    // Treat Grad Zagreb (županija) as a single city entry
+    const zagrebZup = currentData.by_zupanija?.find(d => d.zupanija === 'Grad Zagreb');
+    if (zagrebZup) {
+      mainCitiesData.push({ ...zagrebZup, grad_opcina: 'Zagreb' });
+    }
 
     const sorted = [...mainCitiesData].sort((a, b) => (b.price_mean || 0) - (a.price_mean || 0));
 
